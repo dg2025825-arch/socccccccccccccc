@@ -206,7 +206,6 @@ for c_label in cluster_order:
     n_players = int(row["인원수"])
     desc = describe_cluster(row, overall_mean)
 
-    # 해당 묶음에서 종합 능력치 1위 선수, 포지션 분포도 함께 보여주기
     cluster_players = df_display[df_display["묶음"] == c_label]
     top_player = cluster_players.sort_values("overall", ascending=False).iloc[0]
     pos_dist = cluster_players["포지션대분류"].value_counts()
@@ -247,6 +246,61 @@ cross_tab = cross_tab.reindex(cluster_order)
 st.dataframe(cross_tab, use_container_width=True)
 
 # ------------------------------------------------------------
+# 선수별 설명 보기
+# ------------------------------------------------------------
+st.header("🔍 선수별 설명 보기")
+st.write("선수를 한 명 선택하면, 그 선수의 능력치가 소속된 묶음 안에서 어떤 특징을 가지는지 자동으로 설명해 드립니다.")
+
+player_name_selected = st.selectbox(
+    "설명을 보고 싶은 선수를 선택하세요",
+    options=sorted(df_display["name_ko"].unique())
+)
+
+player_row = df_display[df_display["name_ko"] == player_name_selected].iloc[0]
+player_cluster = player_row["묶음"]
+cluster_mates = df_display[df_display["묶음"] == player_cluster]
+cluster_mean_for_player = cluster_mates[STAT_COLS_KO].mean()
+
+# 선수 개인 능력치가 소속 묶음 평균 대비 높은지 낮은지 비교
+diffs_player = player_row[STAT_COLS_KO] - cluster_mean_for_player
+player_strengths = diffs_player[diffs_player >= 3.0].sort_values(ascending=False)
+player_weaknesses = diffs_player[diffs_player <= -3.0].sort_values()
+
+with st.container():
+    st.subheader(f"{player_name_selected} 선수 정보")
+
+    info_col1, info_col2, info_col3 = st.columns(3)
+    with info_col1:
+        st.metric("소속 묶음", player_cluster)
+    with info_col2:
+        st.metric("종합 능력치(overall)", int(player_row["overall"]))
+    with info_col3:
+        st.metric("나이", int(player_row["age"]))
+
+    st.write(f"**소속 클럽**: {player_row['club']}  |  **포지션**: {player_row['positions']}  |  **키**: {int(player_row['height_cm'])}cm")
+
+    # 능력치 표 (선수 개인 vs 소속 묶음 평균)
+    compare_df = pd.DataFrame({
+        "이 선수": player_row[STAT_COLS_KO],
+        f"{player_cluster} 묶음 평균": cluster_mean_for_player.round(2)
+    })
+    st.table(compare_df)
+
+    # 자동 설명 문장
+    desc_parts = []
+    if len(player_strengths) > 0:
+        strength_names = ", ".join(player_strengths.index.tolist())
+        desc_parts.append(f"같은 묶음({player_cluster}) 선수들과 비교했을 때 **{strength_names}** 능력치가 특히 높은 편입니다")
+    if len(player_weaknesses) > 0:
+        weakness_names = ", ".join(player_weaknesses.index.tolist())
+        desc_parts.append(f"**{weakness_names}** 능력치는 같은 묶음 평균보다 낮은 편입니다")
+
+    if desc_parts:
+        st.markdown("💬 " + " / ".join(desc_parts) + ".")
+    else:
+        st.markdown(f"💬 이 선수는 소속 묶음({player_cluster})의 평균적인 능력치 분포와 비슷한 특징을 보입니다.")
+
+# ------------------------------------------------------------
 # 마케팅 관점 생각 정리하기 (학생 작성 공간)
 # ------------------------------------------------------------
 st.header("💡 마케팅팀 관점에서 생각해보기")
@@ -266,16 +320,8 @@ reason_text = st.text_area(
     height=100
 )
 
-limitation_text = st.text_area(
-    "이 분석만으로는 판단하기 어렵다고 생각한 점이 있다면 적어 주세요 (선택)",
-    placeholder="예: 이 데이터에는 선수의 나이, 부상 이력, 실제 인기도나 마케팅 효과 같은 정보가 없어서 종합적으로 판단하기는 어렵습니다.",
-    height=100
-)
-
 if reason_text:
     st.success(f"✅ '{recommended_cluster}' 묶음을 추천했고, 이유를 정리했습니다.")
-    if limitation_text:
-        st.info("분석의 한계점도 함께 고려했네요. 좋은 태도입니다.")
 
 # ------------------------------------------------------------
 # 엘보우 방법 (묶음 수에 따른 SSE)
