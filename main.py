@@ -118,7 +118,6 @@ col1, col2 = st.columns(2)
 with col1:
     x_axis = st.selectbox("가로축 능력치", options=selected_stats_ko, index=0, key="2d_x")
 with col2:
-    y_axis_options = [s for s in selected_stats_ko if s != x_axis] if len(selected_stats_ko) > 1 else selected_stats_ko
     y_axis = st.selectbox("세로축 능력치", options=selected_stats_ko, index=min(1, len(selected_stats_ko)-1), key="2d_y")
 
 fig_2d = px.scatter(
@@ -147,11 +146,9 @@ else:
     with col3:
         x_3d = st.selectbox("X축 능력치", options=selected_stats_ko, index=0, key="3d_x")
     with col4:
-        x_index_default = min(1, len(selected_stats_ko)-1)
-        y_3d = st.selectbox("Y축 능력치", options=selected_stats_ko, index=x_index_default, key="3d_y")
+        y_3d = st.selectbox("Y축 능력치", options=selected_stats_ko, index=min(1, len(selected_stats_ko)-1), key="3d_y")
     with col5:
-        z_index_default = min(2, len(selected_stats_ko)-1)
-        z_3d = st.selectbox("Z축 능력치", options=selected_stats_ko, index=z_index_default, key="3d_z")
+        z_3d = st.selectbox("Z축 능력치", options=selected_stats_ko, index=min(2, len(selected_stats_ko)-1), key="3d_z")
 
     fig_3d = px.scatter_3d(
         df_display,
@@ -177,6 +174,49 @@ cluster_summary = cluster_counts.to_frame().join(cluster_summary)
 cluster_summary = cluster_summary.reindex(cluster_order)
 
 st.dataframe(cluster_summary, use_container_width=True)
+
+# ------------------------------------------------------------
+# 묶음별 자동 해석 (전체 평균과 비교)
+# ------------------------------------------------------------
+st.header("🔎 묶음별 특징 살펴보기")
+st.write("전체 선수 평균과 비교했을 때, 각 묶음이 어떤 능력치에서 눈에 띄는지 정리했습니다.")
+
+overall_mean = df_display[STAT_COLS_KO].mean()
+
+def describe_cluster(row, overall_mean, threshold=3.0):
+    """전체 평균 대비 차이가 threshold 이상인 능력치를 강점/약점으로 뽑아 문장으로 만듦"""
+    diffs = row[STAT_COLS_KO] - overall_mean
+    strengths = diffs[diffs >= threshold].sort_values(ascending=False)
+    weaknesses = diffs[diffs <= -threshold].sort_values()
+
+    parts = []
+    if len(strengths) > 0:
+        strength_names = ", ".join(strengths.index.tolist())
+        parts.append(f"**{strength_names}** 능력치가 전체 평균보다 뚜렷하게 높습니다")
+    if len(weaknesses) > 0:
+        weakness_names = ", ".join(weaknesses.index.tolist())
+        parts.append(f"**{weakness_names}** 능력치는 전체 평균보다 낮은 편입니다")
+
+    if not parts:
+        return "전체 평균과 큰 차이 없이 고른 능력치를 가진 묶음입니다."
+    return " / ".join(parts) + "."
+
+for c_label in cluster_order:
+    row = cluster_summary.loc[c_label]
+    n_players = int(row["인원수"])
+    desc = describe_cluster(row, overall_mean)
+
+    # 해당 묶음에서 종합 능력치 1위 선수, 포지션 분포도 함께 보여주기
+    cluster_players = df_display[df_display["묶음"] == c_label]
+    top_player = cluster_players.sort_values("overall", ascending=False).iloc[0]
+    pos_dist = cluster_players["포지션대분류"].value_counts()
+    main_pos = pos_dist.idxmax()
+    main_pos_ratio = round(pos_dist.max() / n_players * 100, 1)
+
+    with st.expander(f"{c_label} 묶음 해석 보기 (인원 {n_players}명)", expanded=True):
+        st.markdown(f"- {desc}")
+        st.markdown(f"- 이 묶음에서 종합 능력치가 가장 높은 선수는 **{top_player['name_ko']}** (overall {top_player['overall']})입니다.")
+        st.markdown(f"- 포지션 대분류 기준으로 **{main_pos}**의 비중이 가장 높습니다 (약 {main_pos_ratio}%).")
 
 # ------------------------------------------------------------
 # 묶음별 종합 능력치 상위 5명
@@ -207,6 +247,37 @@ cross_tab = cross_tab.reindex(cluster_order)
 st.dataframe(cross_tab, use_container_width=True)
 
 # ------------------------------------------------------------
+# 마케팅 관점 생각 정리하기 (학생 작성 공간)
+# ------------------------------------------------------------
+st.header("💡 마케팅팀 관점에서 생각해보기")
+st.write(
+    "위 분석 결과(능력치 평균, 상위 선수, 포지션 분포 등)를 참고해서, "
+    "여러분이 마케팅팀 인턴이라면 어떤 묶음에 자원을 더 투자하고 싶은지 정리해 봅시다."
+)
+
+recommended_cluster = st.selectbox(
+    "가장 추천하고 싶은 묶음을 골라 보세요",
+    options=cluster_order
+)
+
+reason_text = st.text_area(
+    f"'{recommended_cluster}' 묶음을 추천하는 이유를 한 가지 적어 주세요",
+    placeholder="예: 이 묶음은 슈팅과 드리블이 모두 높아 공격 포인트를 만들기 좋고, 상위 선수들의 인지도도 높아 마케팅 효과가 클 것 같습니다.",
+    height=100
+)
+
+limitation_text = st.text_area(
+    "이 분석만으로는 판단하기 어렵다고 생각한 점이 있다면 적어 주세요 (선택)",
+    placeholder="예: 이 데이터에는 선수의 나이, 부상 이력, 실제 인기도나 마케팅 효과 같은 정보가 없어서 종합적으로 판단하기는 어렵습니다.",
+    height=100
+)
+
+if reason_text:
+    st.success(f"✅ '{recommended_cluster}' 묶음을 추천했고, 이유를 정리했습니다.")
+    if limitation_text:
+        st.info("분석의 한계점도 함께 고려했네요. 좋은 태도입니다.")
+
+# ------------------------------------------------------------
 # 엘보우 방법 (묶음 수에 따른 SSE)
 # ------------------------------------------------------------
 st.header("📉 엘보우 방법으로 적절한 묶음 수 확인하기")
@@ -229,7 +300,6 @@ fig_elbow.add_trace(go.Scatter(
     name="SSE"
 ))
 
-# 현재 선택한 묶음 수 위치에 세로선
 fig_elbow.add_vline(
     x=n_clusters,
     line_width=2,
@@ -248,7 +318,6 @@ fig_elbow.update_layout(
 )
 st.plotly_chart(fig_elbow, use_container_width=True)
 
-# SSE 감소량 표
 sse_df = pd.DataFrame({
     "묶음 수": k_range,
     "SSE": [round(v, 2) for v in sse_list]
